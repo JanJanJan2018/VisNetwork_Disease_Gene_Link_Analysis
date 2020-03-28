@@ -21,7 +21,7 @@ The tables being used are from the following disease study files.
 - Pancreatic_Cancer_Thresholds.csv
 - useableAlzheimerStats.csv
 
-These files will be uploaded to the github folder of files for this Rmarkdown script that creates a link analysis with visNetwork to display the genes associated with certain diseases and if associated with other diseases.
+These files will be uploaded to the [github folder of files](https://github.com/JanJanJan2018/VisNetwork_Disease_Gene_Link_Analysis) for this Rmarkdown script that creates a link analysis with visNetwork to display the genes associated with certain diseases and if associated with other diseases.
 
 To skip straight through to the section that builds the visual network analysis of genes related to diseases, search for '%^&' or !!!THE BEGINNING of our VISNETWORK!!! within RStudio. About line 870 of this Rmarkdown file.
 
@@ -891,20 +891,338 @@ ul_microarray <- read.csv('UL_microarray_thresholds.csv',sep=',', header=TRUE,
 
 Lets now look at each of these six diseases and add in what type of disease it is to the fields in each table that don't give that information.
 ```{r}
-colnames(alzheimer)[1:4] <- paste('AD',colnames(alzheimer)[1:4],sep='_')
+#colnames(alzheimer)[1:4] <- paste('AD',colnames(alzheimer)[1:4],sep='_')
 
-colnames(colon)[c(1,3,4,5)] <- paste('CC',colnames(colon)[c(1,3,4,5)],sep='_')
+#colnames(colon)[c(1,3,4,5)] <- paste('CC',colnames(colon)[c(1,3,4,5)],sep='_')
 
-colnames(stomach)[1:4] <- paste('GSC', colnames(stomach)[1:4],sep='_')
+#colnames(stomach)[1:4] <- paste('GSC', colnames(stomach)[1:4],sep='_')
 
-colnames(pancreatic)[1:4] <- paste('PC', colnames(pancreatic)[1:4], sep='_')
+#colnames(pancreatic)[1:4] <- paste('PC', colnames(pancreatic)[1:4], sep='_')
 
-colnames(ul_beadchip)[1:5] <- paste('UL_beadchip', colnames(ul_beadchip)[1:5], sep='_')
-colnames(ul_beadchip)[9:46] <- gsub('UL','UL_beadchip', colnames(ul_beadchip)[9:46])
+#colnames(ul_beadchip)[1:5] <- paste('UL_beadchip', colnames(ul_beadchip)[1:5], sep='_')
+#colnames(ul_beadchip)[9:46] <- gsub('UL','UL_beadchip', colnames(ul_beadchip)[9:46])
 
-colnames(ul_microarray)[c(1:4)] <- paste('UL_array', colnames(ul_microarray)[c(1:4)],
-                                              sep='_')
-colnames(ul_microarray)[8:13] <- gsub('UL_','UL_microarray_', colnames(ul_microarray)[8:13])
+#colnames(ul_microarray)[c(1:4)] <- paste('UL_array', colnames(ul_microarray)[c(1:4)],
+#                                              sep='_')
+#colnames(ul_microarray)[8:13] <- gsub('UL_','UL_microarray_', colnames(ul_microarray)[8:13])
 ```
 
+Lets add in the disease type field of factor type to each table.
+```{r}
+pancreatic$pancreatic_cancer <- as.factor('pancreatic cancer')
+stomach$stomach_cancer <- as.factor('stomach cancer')
+colon$colon_cancer <- as.factor('colon cancer')
+alzheimer$alzheimerDisease <- as.factor('Alzheimer\'s Disease')
+ul_beadchip$uterine_leiomyoma_BC <- as.factor('benign UL beadchip')
+ul_microarray$uterine_leiomyoma_MA <- as.factor('benign UL microarray')
+```
+
+
+Pancreatic cancer data table:
+```{r}
+head(pancreatic)
+```
+
+Stomach cancer data table:
+```{r}
+head(stomach)
+```
+
+Colon cancer data table:
+```{r}
+head(colon)
+```
+
+Alzheimer's Disease data table:
+```{r}
+head(alzheimer)
+```
+
+Uterine Leiomyoma beadchip data table:
+```{r}
+head(ul_beadchip)
+```
+
+Uterine Leiomyoma microarray data table:
+```{r}
+head(ul_microarray)
+```
+
+Lets only keep the cytoband, sequence, symbol, fold change, and disease type columns of each table.
+
+The alzheimer table already has the only fields we want, but lets rearrange and rename them to make them more consistent.
+```{r}
+AD1 <- alzheimer %>% select(GENE_SYMBOL:SEQUENCE,alzheimerDisease,
+                            FoldChange_Median_AD_2_ctrl)
+colnames(AD1) <- c('gene','cytoband','cnv','sequence','disease','foldChangeAD')
+colnames(AD1)
+```
+
+The pancreatic cancer table has two fold change values for different cell lines observed. The first fold change values are of epithelial cells of PC with a tumor/cancer suppressor(ARHGEF10) added compared to not. And the second fold change values are of lymphatic cells that the cancer suppressor (ARHGEF10) was knocked out or eliminated as much as possible when compared to lymphatic cells of pancreatic cancer patients.
+```{r}
+PC1 <- pancreatic %>% select(Symbol,Cytoband,GENE_CNVs,SEQUENCE,pancreatic_cancer,
+                             FoldChange_epithelial_PC,
+                             FoldChange_lymphNode_PC
+                             )
+colnames(PC1) <- c('gene','cytoband','cnv','sequence','disease','foldChangePC_epith',
+                   'foldChangePC_lymph')
+colnames(PC1)
+```
+
+The colon cancer dataset also has two fold change values. The first is a set of LGR5 being knocked down with a shRNA, and the 2nd type is of LGR5 being knocked down with the 2nd type of shRNA.
+```{r}
+CC1 <- colon %>% select(Symbol,Cytoband,Symbol_CC_CNVs,SEQUENCE,colon_cancer,
+                        FoldChange_CC1_to_CC0, FoldChange_CC2_to_CC0)
+colnames(CC1) <- c('gene','cytoband','cnv','sequence','disease','FoldChange_CC1_to_CC0',
+                   'FoldChange_CC2_to_CC0')
+colnames(CC1)
+```
+
+The stomach cancer dataset has one fold change value
+```{r}
+GSC1 <- stomach %>% select(GENE_SYMBOL,CYTOBAND,GENE_CNVs,SEQUENCE,stomach_cancer,
+                           FoldChangeMedian_GSC_to_healthyCtrl)
+colnames(GSC1) <-  c('gene','cytoband','cnv','sequence','disease',
+                     'FoldChangeMedian_GSC_to_healthyCtrl' )
+colnames(GSC1)
+```
+
+The UL beadchip has one fold change column.
+```{r}
+UL_BC <- ul_beadchip %>% select(Symbol,Cytoband,Symbol_CNVs,SEQUENCE,uterine_leiomyoma_BC,
+                                FoldChange_Median_UL1_to_nonUL1,
+                                )
+colnames(UL_BC) <-  c('gene','cytoband','cnv','sequence', 'disease',
+                     'FoldChange_Median_UL1_to_nonUL1')
+colnames(UL_BC)
+```
+
+The UL microarray data also has one foldchange column.
+```{r}
+UL_MA <- ul_microarray %>% select(GENE_SYMBOL,CYTOBAND,GENE_SYMBOL_CNVs,SEQUENCE,
+                                  uterine_leiomyoma_MA,
+                                  FoldChange_MedianArray_UL1_to_nonUL1)
+colnames(UL_MA) <-  c('gene','cytoband','cnv','sequence', 'disease',
+                     'FoldChange_MedianArray_UL1_to_nonUL1')
+colnames(UL_MA)
+```
+
+Our data tables with fold change values are AD1, CC1, GSC1, PC1, UL_BC, and UL_MA. Lets look at the first few observations of each table.
+```{r}
+head(AD1)
+```
+
+Lets alter the cytoband field so that all values are the same format.
+```{r}
+AD2 <- AD1
+cyto1 <- strsplit(as.character(AD2$cytoband),split='|',fixed=TRUE)
+cyto2 <- lapply(cyto1,'[',2)
+AD2$cytoband <- as.character(paste(cyto2))
+AD2$cytoband <- as.factor(AD2$cytoband)
+head(AD2)
+```
+
+
+```{r}
+head(CC1)
+```
+
+```{r}
+CC2 <- CC1
+CC2$cytoband <- gsub('-','|',CC2$cytoband)
+CC2$cytoband <- gsub('[|].*[a-z]{1}$','', CC2$cytoband, perl=TRUE)
+CC2$cytoband <- gsub('[a-z]{1}$','', CC2$cytoband, perl=TRUE)
+CC2$cytoband <- as.factor(CC2$cytoband)
+head(CC2)
+```
+
+
+```{r}
+head(GSC1)
+```
+
+```{r}
+GSC2 <- GSC1
+cyto1 <- strsplit(as.character(GSC2$cytoband),split='|',fixed=TRUE)
+cyto2 <- lapply(cyto1,'[',2)
+GSC2$cytoband <- as.character(paste(cyto2))
+GSC2$cytoband <- as.factor(GSC2$cytoband)
+head(GSC2)
+```
+
+
+```{r}
+head(PC1)
+```
+
+```{r}
+PC2 <- PC1
+PC2$cytoband <- gsub('-','|',PC2$cytoband)
+PC2$cytoband <- gsub('[|].*[a-z]{1}$','', PC2$cytoband, perl=TRUE)
+PC2$cytoband <- gsub('[a-z]{1}$','', PC2$cytoband, perl=TRUE)
+PC2$cytoband <- as.factor(PC2$cytoband)
+head(PC2)
+```
+
+
+```{r}
+head(UL_BC)
+```
+
+```{r}
+UL_BC2 <- UL_BC
+UL_BC2$cytoband <- gsub('[a-z]{1}$','', UL_BC2$cytoband, perl=TRUE)
+UL_BC2$cytoband <- as.factor(UL_BC2$cytoband)
+head(UL_BC2)
+```
+
+
+```{r}
+head(UL_MA)
+```
+
+```{r}
+UL_MA2 <- UL_MA
+cyto1 <- strsplit(as.character(UL_MA2$cytoband),split='|',fixed=TRUE)
+cyto2 <- lapply(cyto1,'[',2)
+UL_MA2$cytoband <- as.character(paste(cyto2))
+UL_MA2$cytoband <- as.factor(UL_MA2$cytoband)
+head(UL_MA2)
+```
+
+Now we have our tables with the same formatted cytoband locations as factors. These tables are AD2, CC2, GSC2, PC2, UL_BC2, and UL_MA2. Lets create other tables of these six tables that have all the same values. Lets gather the fold change fields to bind all together. Four tables only have one fold change type, but the colon cancer and the pancreatic cancer have two types.
+```{r}
+AD3 <- gather(AD2,'foldChange','foldChangeValue',6)
+CC3 <- gather(CC2,'foldChange','foldChangeValue',6:7)
+PC3 <- gather(PC2,'foldChange','foldChangeValue',6:7)
+GSC3 <- gather(GSC2,'foldChange','foldChangeValue',6)
+UL_BC3 <- gather(UL_BC2,'foldChange','foldChangeValue',6)
+UL_MA3 <-gather(UL_MA2,'foldChange','foldChangeValue',6)
+```
+
+We can now row bind these tables together.
+```{r}
+All_data <- rbind(AD3,CC3,PC3,GSC3,UL_BC3,UL_MA3)
+```
+
+```{r}
+All <- All_data[order(All_data$gene),]
+head(All,20)
+```
+
+Lets use a DT library datatable to display the new table.
+```{r}
+All_DT1 <- datatable(data=All,  rownames=FALSE, width = 800, height = 700,
+                      extensions=c('Buttons','Responsive','FixedColumns'),
+                      #filter=list(position='top'),
+                      options=list(
+                        dom='Bfrtip',scrollX = TRUE, scrollY=TRUE,fixedColumns = TRUE,
+                        buttons=c('colvis','csv'),
+                        language=list(sSearch='Filter:')
+                        )
+                      )
+
+All_DT1
+```
+
+Lets now see what genes are in other diseases with slicing.
+```{r}
+All2 <- All_data %>% select(gene,disease)
+All3 <- All2[!duplicated(All2),]
+All4 <- All3[order(All3$gene, decreasing=FALSE),]
+head(All4)
+```
+
+Lets create a DT data table of this information showing the unique genes with their diseases associated with.
+```{r}
+All_DT2 <- datatable(data=All4,  rownames=FALSE, width = 800, height = 700,
+                      extensions=c('Buttons','Responsive','FixedColumns'),
+                      #filter=list(position='top'),
+                      options=list(
+                        dom='Bfrtip',scrollX = TRUE, scrollY=TRUE,fixedColumns = TRUE,
+                        buttons=c('colvis','csv'),
+                        language=list(sSearch='Filter:')
+                        )
+                      )
+
+All_DT2
+```
+
+We can see from the data table above that there are some genes that are associated with more than one disease. This will make for presumably an interesting visual network. Lets see exactly which genes are associated with more than one disease.
+```{r}
+All5 <- All4 %>%
+  group_by(gene) %>%
+  mutate(geneDiseases = n()) %>%
+  select(gene,geneDiseases, disease) %>%
+  ungroup() 
+  
+All6 <- subset(All5, All5$geneDiseases > 1)
+All7 <- All6[order(All6$geneDiseases, decreasing=TRUE),]
+All7
+```
+
+
+```{r}
+length(unique(All7$gene))
+unique(All7$gene)
+```
+
+We know that there are 27 genes in our data associated with more than one disease. We should just plot these diseases with visNetwork. There are other possibilities in using link analysis with visNetwork for location of the genes that are in our 792 observational data of gene targets associated with six specific diseases. And that too could be interesting to compare by cytoband location which genes are neighbors in the nucleus where transcription starts. Here are some facts about gene expression:
+
+-DNA information is transcribed into a special
+type of RNA called messenger RNA in the
+nucleus (mRNA)
+
+- mRNA is modified in the nucleus then is
+transported out to the cytoplasm
+
+- Protein synthesis, or translation, occurs in the
+cytoplasm with the help of transfer RNA
+molecules (tRNA) and ribosomes that contain
+ribosomal RNA molecules (rRNA)
+
+- A gene transcribed into RNA is said to be expressed
+
+(Those aren't my words, They were taken verbatum from week 1 of a graduate coure called 'Data Systems of the Life Sciences.')
+
+So, we are working with the All7 table on genes that are associated with more than one of our six diseases. We will use the genes as our nodes, and the edges move from the nodes of diseases if they are associated with the other diseases, and the weights as counts of how many diseases each node is associated with. Lets now recall what fields are needed to build this visual network using visNetwork. We can always attach the cytoband location with a merge of All7 to All but only selecting the gene and cytoband fields.
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
 
