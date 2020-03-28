@@ -1,0 +1,136 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+Pancreatic cancer data table.
+```{r}
+PC <- read.delim('GSE131859_non-normalized.txt', sep='\t', comment.char='!',
+                 header=TRUE, na.strings=c('',' ', 'NA'))
+head(PC)
+```
+
+```{r}
+PCp <- read.delim('GPL14951-11332.txt', sep='\t',header=TRUE, comment.char='#',
+                  na.strings=c('',' ','NA'))
+head(PCp)
+```
+
+
+```{r}
+colnames(PC)
+```
+
+These samples have the pvalue scores attached to the sample microarray readings. We aren't interested in these pval fields, so we will remove them and the added X field when loading of the row numbers when saved to csv from other file.
+```{r}
+PC1 <- PC %>% select(-MiaPACA2_EV.Detection_Pval,-MiaPACA2_ARHGEF10.Detection_Pval,
+                     -Hs766T_shGFP.Detection_Pval,-Hs766T_shARHGEF10.Detection_Pval,-X)
+head(PC1)
+```
+
+We have four samples of pancreatic cancer. MiaPACA2_EV is the control of pancreatic cancer epithelial cells. The idea is to show that ARHGEF10 is a tumor suppressor by examining two cell lines of available commercial pancreatic cancer cells where MiaPACA2 is directly from the epithelial pancreatic cells and Hs766T are from the lymph nodes of someone with pancreatic cancer. MiaPACA2_ARHGEF10 sample is when ARHGEF10 is overexpressed to demonstrate suppression of pancreatic cancer cells not mutating. The Hs766T_shGFP is the sample where the short hair pin RNA additive to eliminate the tumor suppressor ARHGEF10 wasn't added and is the lymph node pancreatic cancer control. The Hs766T_shARHGEF10 is when the Hs766T cell line of pancreatic cancer cells had the ARHGEF10 gene knocked down or suppressed. Lets rename these column samples by what they are,
+
+```{r}
+colnames(PC1) <- c('ID_REF','PC_epithelial_ctrl','PC_epithelial_SuppressorAdded',
+                   'PC_lymph_ctrl','PC_lymph_SuppressorKnockedOut')
+
+```
+
+
+```{r}
+colnames(PCp)
+```
+
+Keep only the Symbol, Cytoband, ID, and SEQUENCE columns of the PC platform to combine with the PC samples by ID_REF and GENE_SYMBOL.
+```{r}
+PC_p <- PCp %>% select(ID, Symbol, SEQUENCE, Cytoband)
+head(PC_p)
+```
+
+The PC data set will be produced by this next chunk.
+```{r}
+PC2 <- merge(PC_p,PC1, by.x='ID', by.y='ID_REF')
+head(PC2)
+```
+
+Since there is only one sample of each, it is redundant to get the median of each type, so we will get the fold change values of the suppresor added epithelial PC cells to the epithelial PC cells control, and the fold change values of the lymph node PC cells with the suppressor knocked out or suppressed to the lymph node PC cells control.
+```{r}
+FC_epithelial_PC <- PC2$PC_epithelial_SuppressorAdded/PC2$PC_epithelial_ctrl
+FC_lymphNode_PC <- PC2$PC_lymph_SuppressorKnockedOut/PC2$PC_lymph_ctrl
+
+PC2$FC_epithelial_PC <- FC_epithelial_PC
+PC2$FC_lymphNode_PC <- FC_lymphNode_PC
+
+PC3 <- PC2 %>% select(ID:Cytoband, FC_epithelial_PC,FC_lymphNode_PC, everything())
+```
+
+
+Lets group by gene and get the count of each gene and attach it to the sequence information.
+```{r}
+PC4 <- PC3 %>%
+  group_by(Symbol) %>%
+  mutate(GENE_CNVs = n()) %>%
+  select(Symbol, GENE_CNVs, everything()) %>%
+  ungroup() %>%
+  unique()
+
+colnames(PC4) <- gsub('FC_','FoldChange_', colnames(PC4))
+colnames(PC4)
+```
+
+
+```{r}
+PC5 <- PC4[with(PC4, order(GENE_CNVs, FoldChange_epithelial_PC, 
+                                        FoldChange_lymphNode_PC, decreasing=TRUE)),]
+```
+
+Get the subset of AD that has the genes with a high number of CNVs and a high Fold change by median values. 
+```{r}
+PC_genes <- subset(PC5, PC5$GENE_CNVs > median(PC5$GENE_CNVs, na.rm=TRUE) &
+                    (PC5$FoldChange_epithelial_PC < 
+                       quantile(PC5$FoldChange_epithelial_PC,0.05, na.rm=TRUE) |
+                    PC5$FoldChange_lymphNode_PC > 
+                      quantile(PC5$FoldChange_lymphNode_PC, .95, na.rm=TRUE))
+                  )
+
+length(unique(PC_genes))
+
+```
+This is a lot of unique genes, so lets filter more by making the CNVs to be in the top 95th percentile of CNV counts instead of greater than the median of gene CNVs.
+```{r}
+PC_genes2 <- subset(PC5, PC5$GENE_CNVs > quantile(PC5$GENE_CNVs, 0.95,na.rm=TRUE) &
+                    (PC5$FoldChange_epithelial_PC < 
+                       quantile(PC5$FoldChange_epithelial_PC,0.05, na.rm=TRUE) |
+                    PC5$FoldChange_lymphNode_PC > 
+                      quantile(PC5$FoldChange_lymphNode_PC, .95, na.rm=TRUE))
+                  )
+length(unique(PC_genes2))
+
+```
+That is a much better quantity to work with for targeted Pancreatic Cancer genes. Lets order this by CNVs then by fold change epithelial then fold change lymph.
+```{r}
+PC6 <- PC_genes2[with(PC_genes2, order(GENE_CNVs,FoldChange_epithelial_PC,
+                                       FoldChange_lymphNode_PC, decreasing=TRUE)),]
+head(PC6)
+```
+
+Lets drop the ID field. 
+```{r}
+PC7 <- PC6 %>% select(-ID)
+head(PC7)
+```
+
+Lets write this file out to csv and work on the other disease data sets separate from this one.
+```{r}
+write.csv(PC7, 'Pancreatic_Cancer_Thresholds.csv', row.names=FALSE)
+```
+
+***

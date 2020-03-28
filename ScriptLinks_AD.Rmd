@@ -1,0 +1,183 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+library(DT)
+```
+
+Alzheimer's Disease data table.
+```{r}
+AD <- read.delim('GSE109887_series_matrix.txt', sep='\t', comment.char='!',
+                 header=TRUE, na.strings=c('',' ', 'NA'))
+head(AD)
+```
+
+```{r}
+ADp <- read.delim('GPL4133-12599.txt', sep='\t',header=TRUE, comment.char='#',
+                  na.strings=c('',' ','NA'))
+head(ADp)
+```
+
+
+```{r}
+colnames(AD)
+```
+
+
+```{r}
+colnames(ADp)
+```
+
+Keep only the GENE_SYMBOL and SEQUENCE columns of the AD platform to combine with the AD samples by ID_REF and GENE_SYMBOL.
+```{r}
+AD_p <- ADp[,c(10,20)]
+```
+
+The AD data set will be produced by this next chunk.
+```{r}
+AD_1 <- merge(AD_p,AD, by.x='GENE_SYMBOL', by.y='ID_REF')
+head(AD_1)
+```
+
+We should separate the columns that are samples of AD patients to those that are the control samples of AD patients.
+```{r}
+metaAD <- read.csv('AlzheimerAgeGenderTissueSamplesMeta.csv',sep=',', header=TRUE,
+                   na.strings=c('',' ','NA'))
+head(metaAD)
+```
+
+
+```{r}
+row.names(metaAD) <- metaAD$sampleID
+```
+
+
+```{r}
+meta_AD <- as.data.frame(t(metaAD))
+head(meta_AD)
+```
+
+Get the indices of the AD and control patients
+```{r}
+ad <- grep('AD', meta_AD$disease)
+#add 1 because of the additional sequence field in AD_1 not in metaAD
+ad <- ad+1
+```
+
+Paste the type of sample to the sample ID fields.
+```{r}
+colnames(AD_1)[ad] <- paste('AD',colnames(AD_1)[ad],sep='_')
+colnames(AD_1)[-c(1,2,ad)] <- paste('ctrl_AD',colnames(AD_1)[-c(1,2,ad)], sep='_')
+```
+
+Create separate tables for the AD and the control patients.
+```{r}
+ad1 <- AD_1[,ad]
+ctrl_ad1 <- AD_1[,-c(1,2,ad)]
+```
+
+
+Row Means of each subset.
+```{r}
+ad1$Mean_AD <- rowMeans(ad1)
+ctrl_ad1$Mean_ctrl_AD <- rowMeans(ctrl_ad1)
+```
+
+
+```{r}
+ad1$Median_AD <- apply(ad1,1,median)
+ctrl_ad1$Median_ctrl_AD <- apply(ctrl_ad1,1,median)
+```
+
+Now combine these new value fields to the original table for AD and control mean and median.
+```{r}
+AD_1$Mean_AD <- ad1$Mean_AD
+AD_1$Mean_ctrl_AD <- ctrl_ad1$Mean_ctrl_AD
+AD_1$Median_AD <- ad1$Median_AD
+AD_1$Median_ctrl_AD <- ctrl_ad1$Median_ctrl_AD
+```
+
+Remove duplicate entries, the genes even thought they have different sequence values, are showing duplicate or identical gene expression values by gene.
+```{r}
+AD2 <- AD_1[!duplicated(AD_1),]
+
+AD2$FoldChange_Mean_AD_2_ctrl <- AD2$Mean_AD/AD2$Mean_ctrl_AD
+AD2$FoldChange_Median_AD_2_ctrl <- AD2$Median_AD/AD2$Median_ctrl_AD
+
+head(AD2)[,c(1,2,83:86)]
+```
+You can see from the above table that even though the sequence is different in these first displayed genes that the gene the sequences belong to have the same gene expression values. 
+
+Lets group by gene and get the count of each gene and attach it to the sequence information.
+```{r}
+AD3 <- AD2 %>%
+  group_by(GENE_SYMBOL) %>%
+  mutate(GENE_CNVs = n()) %>%
+  select(GENE_SYMBOL, GENE_CNVs, SEQUENCE, Median_AD, Median_ctrl_AD, 
+         FoldChange_Mean_AD_2_ctrl, FoldChange_Median_AD_2_ctrl, everything()) %>%
+  ungroup() %>%
+  unique()
+```
+
+
+```{r}
+Alzheimer <- AD3[with(AD3, order(GENE_CNVs, GENE_SYMBOL,  decreasing=TRUE)),]
+```
+
+Get the subset of AD that has the genes with a high number of CNVs and a high Fold change by median values. 
+```{r}
+AD_genes <- subset(Alzheimer, Alzheimer$GENE_CNVs > median(Alzheimer$GENE_CNVs) &
+                              (Alzheimer$FoldChange_Median_AD_2_ctrl < 0.90 |
+                              Alzheimer$FoldChange_Median_AD_2_ctrl > 1.10)
+                  )
+alz_genes <- unique(AD_genes$GENE_SYMBOL)
+alz_genes
+```
+
+
+```{r}
+AD4 <- AD_genes[,c(1:3,7)]
+AD4
+```
+
+```{r}
+AD_genes1 <- datatable(data=AD4,  rownames=FALSE,
+                      extensions=c('Buttons','Responsive','FixedColumns'),
+                      filter=list(position='top'),
+                      options=list(
+                        dom='Bfrtip',scrollX = TRUE, fixedColumns = TRUE,
+                        buttons=c('colvis','csv'),
+                        language=list(sSearch='Filter:')
+                        )
+                      )
+
+AD_genes1
+```
+
+Lets also add in the cytoband location.
+```{r}
+cyto <- ADp %>% select(GENE_SYMBOL, CYTOBAND) 
+AD5 <- merge(cyto, AD4, by.x='GENE_SYMBOL', by.y='GENE_SYMBOL')
+head(AD5)
+```
+
+So, now we have our table of Alzheimer genes that have high CNVs and Fold Change Median values. Lets start getting this information for the other diseases to word towards building our visNetwork of genes related to other genes if any are.
+
+We want to get these same values exactly as we have for the Alzheimer's Disease genes.
+```{r}
+colnames(AD5)
+```
+If we can't get the CYTOBAND for the other diseases then we will leave it out.
+Lets write this file out to csv and work on the other disease data sets separate from this one.
+```{r}
+write.csv(AD5, 'useableAlzheimerStats.csv', row.names=FALSE)
+```
+
+***

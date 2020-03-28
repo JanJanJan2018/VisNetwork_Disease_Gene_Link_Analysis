@@ -1,0 +1,158 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+Colon cancer data table.
+```{r}
+CC <- read.delim('GSE135749_series_matrix.txt', sep='\t', comment.char='!',
+                 header=TRUE, na.strings=c('',' ', 'NA'))
+head(CC)
+```
+
+```{r}
+CCp <- read.delim('GPL10558-50081.txt', sep='\t',header=TRUE, comment.char='#',
+                  na.strings=c('',' ','NA'))
+head(CCp)
+```
+
+
+```{r}
+colnames(CC)
+```
+
+
+```{r}
+colnames(CCp)
+```
+
+Keep only the SYMBOL, ID, Cytoband, and SEQUENCE columns of the CC platform to combine with the CC samples by ID_REF.
+```{r}
+CC_p <- CCp %>% select(ID, Symbol,SEQUENCE,Cytoband)
+```
+
+The CC data set will be produced by this next command.
+```{r}
+CC_1 <- merge(CC_p,CC, by.x='ID', by.y='ID_REF')
+head(CC_1)
+```
+Note: Since these are quantile normalized, and there are various ways and reasons to do this, but the purpose being primarily to eliminate noise, we will keep the values, for our purposes, we are still getting those threshold genes that are in the bottom 5th and top 95th percentile while also having more CNVs than the median CNVs of all genes in this set.
+
+We should separate the columns that are samples of colon cancer tumors without treatment of the short hairpin RNAs (shRNA) targeting two different RNAs of LGR5. The first sample columns are the control colon cancer samples, the next two are the first type of LGR5 being knocked down with a shRNA, and the last two samples as columns are the 2nd type of LGR5 being knocked down with the 2nd type of shRNA.
+
+These are colon cancer tumor cells. with two replicates of each sample type or group. We will prepend cc0, cc1,cc2 to these 6 samples for if no shRNA knockdown (cc0), the 1st type shRNA (cc1), or the 2nd type shRNA (cc2) is what the sample is a product of procedure type.
+```{r}
+colnames(CC_1)[5:6] <- paste('cc0', colnames(CC_1)[5:6],sep='_')
+colnames(CC_1)[7:8] <- paste('cc1', colnames(CC_1)[7:8],sep='_')
+colnames(CC_1)[9:10] <- paste('cc2', colnames(CC_1)[9:10],sep='_')
+```
+
+```{r}
+colnames(CC_1)
+```
+
+Now, lets add in the median values of the samples of these three groups of control, knockdown 1, and knockdown 2. The median values will be knockdown 1 compared to control, and knockdown 2 compared to control.We want to be consistent with the methods of our other disease type sample extraction of target genes, so even though there are only two samples of each group, the median is used. Notice the median seems to be programmed to be the mean when there are only two samples.
+```{r}
+cc0 <- apply(CC_1[5:6],1,median)
+cc1 <- apply(CC_1[7:8],1,median)
+cc2 <- apply(CC_1[9:10],1,median)
+
+FoldChange_CC1_to_CC0 <- cc1/cc0
+FoldChange_CC2_to_CC0 <- cc2/cc0
+```
+
+Add these median and fold change values to our colon cancer table, CC_1.
+```{r}
+CC_1$ctrl_CC_median <- cc0
+CC_1$group1_CC_median <- cc1
+CC_1$group2_CC_median <- cc2
+CC_1$FoldChange_CC1_to_CC0 <- FoldChange_CC1_to_CC0
+CC_1$FoldChange_CC2_to_CC0 <- FoldChange_CC2_to_CC0
+
+colnames(CC_1)
+```
+
+Rearrange the columns to see the stats and meta information before the sample information.
+```{r}
+CC2 <- CC_1 %>% select(ID:Cytoband, FoldChange_CC1_to_CC0:FoldChange_CC2_to_CC0,
+                       ctrl_CC_median:group2_CC_median,everything())
+colnames(CC2)
+```
+
+Lets group by gene and get the count of each gene and attach it to the sequence information.
+```{r}
+CC3 <- CC2[complete.cases(CC2$Symbol),]
+
+CC4 <- CC3 %>%
+  group_by(Symbol) %>%
+  mutate(Symbol_CC_CNVs = n()) %>%
+  select(Symbol, Symbol_CC_CNVs, everything()) %>%
+  ungroup() %>%
+  unique()
+```
+
+Now, lets get our threshold values so that the genes with CNVs greater than the median value of CNVs of genes in our data set are selected and also those genes in that group but also having a threshold of being in the bottom 5th and top 95th percentile for fold change values of group1/control and group2/control are selected as target genes.
+```{r}
+CC5 <- subset(CC4, 
+              (CC4$Symbol_CC_CNVs > median(CC4$Symbol_CC_CNVs)) &
+               (CC4$FoldChange_CC1_to_CC0 < quantile(CC4$FoldChange_CC1_to_CC0,.05, na.rm=TRUE) 
+               | 
+                CC4$FoldChange_CC1_to_CC0 > quantile(CC4$FoldChange_CC1_to_CC0,.95, na.rm=TRUE)
+               )
+              |  
+              (CC4$Symbol_CC_CNVs > median(CC4$Symbol_CC_CNVs))  
+               &            
+              (CC4$FoldChange_CC2_to_CC0 < quantile(CC4$FoldChange_CC2_to_CC0,.05, na.rm=TRUE) 
+               |               
+               CC4$FoldChange_CC2_to_CC0 > quantile(CC4$FoldChange_CC2_to_CC0,.95, na.rm=TRUE)) 
+              )
+```
+
+There are a lot of observations for this threshold dataset of targeted colon cancer genes. Lets see how many genes are unique.
+```{r}
+length(unique(CC5$Symbol))
+```
+That is a lot of genes as gene targets, so lets set a higher threshold for the genes with CNVs higher than the 97th percentile.
+```{r}
+CC6 <- subset(CC4, 
+              (CC4$Symbol_CC_CNVs > quantile(CC4$Symbol_CC_CNVs,.97)) &
+               (CC4$FoldChange_CC1_to_CC0 < quantile(CC4$FoldChange_CC1_to_CC0,.05, na.rm=TRUE) 
+               | 
+                CC4$FoldChange_CC1_to_CC0 > quantile(CC4$FoldChange_CC1_to_CC0,.95, na.rm=TRUE)
+               )
+              |  
+              (CC4$Symbol_CC_CNVs > quantile(CC4$Symbol_CC_CNVs,.97))  
+               &            
+              (CC4$FoldChange_CC2_to_CC0 < quantile(CC4$FoldChange_CC2_to_CC0,.05, na.rm=TRUE) 
+               |               
+               CC4$FoldChange_CC2_to_CC0 > quantile(CC4$FoldChange_CC2_to_CC0,.95, na.rm=TRUE)) 
+              )
+```
+
+This dataset is much better to work with for targeted genes based on our set threshold limits as discriminates. Lets see how many are unique.
+```{r}
+length(CC6$Symbol)
+```
+
+Lets order this data table by CNVs then by fold change decreasing by group1 then by group2. 
+```{r}
+CC7 <- CC6[with(CC6, order(Symbol_CC_CNVs,FoldChange_CC1_to_CC0,
+                           FoldChange_CC2_to_CC0, decreasing=TRUE)),]
+```
+
+
+If we can't get the CYTOBAND for the other diseases then we will leave it out or add it in later if there are few to look up and add manually.
+Lets write this file out to csv and work on the other disease data sets separate from this one.
+```{r}
+write.csv(CC7, 'ColonCancerThresholds.csv', row.names=FALSE)
+```
+
+***

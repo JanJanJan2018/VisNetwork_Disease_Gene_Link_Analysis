@@ -1,0 +1,115 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+Uterine leiomyomas Disease data table (microarray data).
+These two are from the same study with microarray expressions.
+```{r}
+UL1 <- read.csv('UL_GSE68295_GPL6480_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+nonUL1 <- read.csv('nonUL_GSE68295_GPL6480_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+```
+
+```{r}
+colnames(UL1)
+colnames(nonUL1)
+```
+
+Lets keep only the columns interested in. Those are 
+```{r}
+nonUL1b <- nonUL1 %>% select(GENE_SYMBOL,SEQUENCE,CYTOBAND,GSM1667144:GSM1667146)
+UL1b <- UL1 %>% select(GENE_SYMBOL,SEQUENCE,CYTOBAND,GSM1667147:GSM1667149)
+
+
+colnames(nonUL1b)[4:6] <- paste('nonUL',colnames(nonUL1b)[4:6],sep='_')
+colnames(UL1b)[4:6] <- paste('UL',colnames(UL1b)[4:6],sep='_')
+
+```
+
+Add the Median fields to each table.
+```{r}
+
+UL1c <- UL1b[,4:6]
+nUL1c <- nonUL1b[,4:6]
+
+UL1c$UL1_MedianArray <- apply(UL1c,1,median)
+nUL1c$nonUL1_MedianArray <- apply(nUL1c,1,median)
+
+FC <- UL1c$UL1_MedianArray/nUL1c$nonUL1_MedianArray
+
+mUL1 <- UL1b[,1:3]
+UL_study1 <- cbind(mUL1,UL1c,nUL1c)
+
+UL_study1$FoldChange_MedianArray_UL1_to_nonUL1 <- FC
+
+UL_study1b <- UL_study1 %>% select(GENE_SYMBOL,SEQUENCE,CYTOBAND,
+                                   FoldChange_MedianArray_UL1_to_nonUL1,
+                                   UL1_MedianArray,nonUL1_MedianArray,
+                                   everything())
+```
+
+
+There are some missing values in the GENE_SYMBOL, SEQUENCE, and CYTOBAND fields, but we don't need to omit them yet.
+```{r}
+colSums(is.na(UL_study1b))
+```
+The above shows that there aren't any missing values in the samples or the sequence fields, but there are some in the gene symbol, chromosome, and cytoband fields.
+
+Lets get the CNVs of the genes now, but remove the NAs from the Symbol field first.
+```{r}
+UL_study1b2 <- UL_study1b[complete.cases(UL_study1b$GENE_SYMBOL),]
+
+UL_study1_cnv <- UL_study1b2 %>%
+  group_by(GENE_SYMBOL) %>%
+  mutate(GENE_SYMBOL_CNVs = n()) %>%
+  select(GENE_SYMBOL,GENE_SYMBOL_CNVs,everything()) %>%
+  ungroup() %>%
+  unique()
+```
+
+Lets look at what we have for our first few fields and the values.
+```{r}
+head(UL_study1_cnv[,1:6])
+```
+
+This is going to grab our target genes for those genes that have a CNV gene count greater than the top 90th percentile and also is either of the bottom 5th percentile or top 95th percentile for fold change median values of UL to nonUL gene expression values.
+```{r}
+UL_study1_thresholds <- subset(UL_study1_cnv, 
+                          UL_study1_cnv$GENE_SYMBOL_CNVs > quantile(UL_study1_cnv$GENE_SYMBOL_CNVs,.9) &
+                          (UL_study1_cnv$FoldChange_MedianArray_UL1_to_nonUL1 < 
+                            quantile(UL_study1_cnv$FoldChange_MedianArray_UL1_to_nonUL1,.05) |
+                          UL_study1_cnv$FoldChange_MedianArray_UL1_to_nonUL1 > 
+                            quantile(UL_study1_cnv$FoldChange_MedianArray_UL1_to_nonUL1,.95))
+                        )
+
+```
+
+
+Lets now order this table by CNV and Fold Change values.
+```{r}
+UL_study1_ordered <- UL_study1_thresholds[with(UL_study1_thresholds,
+                        order(GENE_SYMBOL_CNVs,FoldChange_MedianArray_UL1_to_nonUL1,
+                              decreasing=TRUE)),]
+```
+
+
+Lets take a look at the top few rows and first few columns of this table of threshold value target genes for UL.
+```{r}
+head(UL_study1_ordered[,1:7])
+```
+
+The table is ordered by CNVs first then by fold change values within the top CNVs. Lets write this to csv and use it later for our visNetwork. So far, it looks like either the Chromosome or the cytoband could be used for location of the nodes. But we could also group the genes by link to gene disease networks, gene networks, or anything else we get ideas about later. 
+```{r}
+write.csv(UL_study1_ordered,'UL_microarray_thresholds.csv',row.names=FALSE)
+```
+

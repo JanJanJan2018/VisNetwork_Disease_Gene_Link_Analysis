@@ -1,0 +1,115 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+Gastric Stomach Cancer data table.
+```{r}
+GSC <- read.delim('GSE64916_series_matrix.txt', sep='\t', comment.char='!',
+                 header=TRUE, na.strings=c('',' ', 'NA'))
+head(GSC)
+```
+These are samples of gastric stomach cancer gene expressions in located peripheral blood. The samples GSM1583284, GSM1583285, GSM1583286, and GSM1583287 are GSC, and the control of this study is from the blood of a person without gastric stomach cancer in GSM1583288.
+
+Lets label these columns to be their sample types.
+```{r}
+colnames(GSC) <- c("ID","GSC1","GSC2","GSC3","GSC4","noGSC_ctrl")
+head(GSC)
+```
+
+
+```{r}
+GSCp <- read.delim('GPL13497-9755.txt', sep='\t',header=TRUE, comment.char='#',
+                  na.strings=c('',' ','NA'))
+head(GSCp)
+```
+
+Lets keep the ID, GENE_SYMBOL, CYTOBAND, and SEQUENCE columns of our platform meta data.
+```{r}
+GSC_P <- GSCp %>% select(ID, GENE_SYMBOL, CYTOBAND, SEQUENCE)
+head(GSC_P)
+```
+
+Now lets combine the two data tables of sample and meta information.
+```{r}
+GSC2 <- merge(GSC_P, GSC, by.x='ID',by.y='ID')
+head(GSC2)
+```
+
+We will now remove the NAs from the Gene Symbol field.
+```{r}
+GSC3 <- GSC2[complete.cases(GSC2$GENE_SYMBOL),]
+head(GSC3)
+```
+
+
+Lets group by gene and get the count of each gene and attach it to the sequence information.
+```{r}
+GSC4 <- GSC3 %>%
+  group_by(GENE_SYMBOL) %>%
+  mutate(GENE_CNVs = n()) %>%
+  select(GENE_SYMBOL, GENE_CNVs, everything()) %>%
+  ungroup() %>%
+  unique()
+
+colnames(GSC4)
+```
+
+Now, we will add the fold change of median values of the GSC samples to the control sample of a healthy person.
+```{r}
+GSC4$GSC_Median <- apply(GSC4[6:9],1,median)
+GSC4$FoldChangeMedian_GSC_to_healthyCtrl <- GSC4$GSC_Median/GSC4$noGSC_ctrl
+
+GSC5 <- GSC4 %>% select(GENE_SYMBOL, GENE_CNVs,-ID,CYTOBAND,SEQUENCE,
+                        FoldChangeMedian_GSC_to_healthyCtrl,GSC_Median, GSC1:noGSC_ctrl)
+colnames(GSC5)
+```
+
+Lets get the subset of GSC that has the genes with a high number of CNVs and a high Fold change by median values. 
+```{r}
+GSC_genes <- subset(GSC5, GSC5$GENE_CNVs > median(GSC5$GENE_CNVs) &
+                (GSC5$FoldChangeMedian_GSC_to_healthyCtrl < 
+                   quantile(GSC5$FoldChangeMedian_GSC_to_healthyCtrl, 0.05) |
+                 GSC5$FoldChangeMedian_GSC_to_healthyCtrl > 
+                   quantile(GSC5$FoldChangeMedian_GSC_to_healthyCtrl, 0.95)
+                )
+             )
+
+length(unique(GSC_genes$GENE_SYMBOL))
+```
+That is too many genes to make the targeted gastric stomach cancer genes, so we will raise our CNV threshold to the top 99th percentile.
+```{r}
+GSC_genes <- subset(GSC5, GSC5$GENE_CNVs > quantile(GSC5$GENE_CNVs,0.99) &
+                (GSC5$FoldChangeMedian_GSC_to_healthyCtrl < 
+                   quantile(GSC5$FoldChangeMedian_GSC_to_healthyCtrl, 0.05) |
+                 GSC5$FoldChangeMedian_GSC_to_healthyCtrl > 
+                   quantile(GSC5$FoldChangeMedian_GSC_to_healthyCtrl, 0.95)
+                )
+             )
+
+length(unique(GSC_genes$GENE_SYMBOL))
+```
+
+Lets order this table of targeted genes by CNV count then by decreasing value of fold change from GSC to healthy as a ratio.
+```{r}
+GSC6 <- GSC_genes[with(GSC_genes, order(GENE_CNVs,FoldChangeMedian_GSC_to_healthyCtrl,
+                              decreasing=TRUE)),]
+head(GSC6)
+
+```
+
+
+Lets write this file out to csv and work on the other disease data sets separate from this one.
+```{r}
+write.csv(GSC6, 'GastricStomachCancer_Thresholds.csv', row.names=FALSE)
+```
+
+***

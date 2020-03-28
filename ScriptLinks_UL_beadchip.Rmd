@@ -1,0 +1,205 @@
+---
+title: "Gene Sequence Data for Link Analysis"
+author: "Janis Corona"
+date: "3/27/2020"
+output: html_document
+---
+
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+Uterine leiomyomas Disease data table.
+```{r}
+ULp <- read.delim('GPL21145-48548.txt', sep='\t', comment.char='#',
+                 header=TRUE, na.strings=c('',' ', 'NA'))
+head(ULp)
+```
+These two are from the same study with beadchip expressions.
+```{r}
+UL1 <- read.csv('UL_GSE95101_GPL13376_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+nonUL1 <- read.csv('nonUL_GSE95101_GPL13376_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+```
+
+These next two are from different studies with beadchip expressions. These have to be merged with the platform ULp we read in a couple Rmarkdown chunks ago.
+```{r}
+UL2 <- read.csv('UL_GSE120854_GPL23767_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+nonUL2 <- read.csv('nonUL_GSE120854_GPL23767_table.csv', sep=',',header=TRUE,
+                  na.strings=c('',' ','NA'))
+
+
+```
+
+Keep only the columns needed of ULp, ID, SourceSeq, and CHR.There is no gene symbol to bind to this data table platform GPL21145.
+```{r}
+ULP <- ULp %>% select(ID,SourceSeq,CHR)
+UL2b <- UL2 %>% select(-X,-SPOT_ID)
+nonUL2b <- nonUL2 %>% select(-X,-SPOT_ID)
+
+colnames(UL2b)[2:25] <- paste('UL',colnames(UL2b)[2:25],sep='_')
+colnames(nonUL2b)[2:11] <- paste('nonUL', colnames(nonUL2b)[2:11],sep='_')
+```
+
+
+```{r}
+UL_2study <- merge(UL2b,nonUL2b, by.x='ID', by.y='ID') 
+
+UL_study2 <- merge(ULP, UL_2study, by.x='ID', by.y='ID')
+str(UL_study2)
+```
+
+Remove the 'null' values that aren't being recognized by the na.strings or complete.cases. And also the numeric gene expression values are being read in as factors. Do this by writing it to csv and reading it back in and declaring 'null' as an na.string.
+```{r}
+write.csv(UL_study2, 'UL_study2.csv', row.names=FALSE)
+
+```
+
+```{r}
+UL_study2 <- read.csv('UL_study2.csv', sep=',', header=TRUE, na.strings=c('',' ','NA','null'))
+str(UL_study2)
+```
+
+Thats great that it now recognizes each column as a numeric data type and that the null values are now being recognized as NA.
+
+Now, lets use complete.cases to get only those observations with complete cases and remove the NA values.
+```{r}
+UL_study2_cc <- UL_study2[complete.cases(UL_study2),]
+
+obsRM <- length(UL_study2$ID) - length(UL_study2_cc$ID)
+
+cat('The number of observations removed is: ', obsRM,'.')
+```
+Its too bad that we cannot really do anything with this data, unless we open up ubuntu Linux and use the 3.4 version of R to use Bioconductor to get the gene names. But we can at least use the sequences to see if there are any with copies. Not necessarily CNVs because they would have to have the gene names to see what insertions, deletions, skips, etc make the gene a CNV. We can always extract what we need from it now, then get the gene information with a VM of Ubuntu, download the R version and use the tutorial (assuming it works exactly as demonstrated) [online](http://www.bioconductor.org/help/course-materials/2017/BioC2017/Day2/Workshops/ELMER/doc/data.html).
+
+The following are the requirements using the above online tutorial:
+- R version 3.4.1 (2017-06-30)
+- Platform: x86_64-pc-linux-gnu (64-bit)
+- Running under: Ubuntu 16.04.2 LTS
+
+So lets get the median and foldchange median values. We also don't have the cytoband location, but we do have the chromosome for this set. 
+```{r}
+row.names(UL_study2_cc) <- UL_study2_cc$ID
+```
+
+```{r}
+ul <- grep('^UL', colnames(UL_study2_cc))
+UL2_t <- UL_study2_cc[,ul]
+nUL2_t <- UL_study2_cc[,-c(1:3,ul)]
+```
+
+Get the row medians of the UL and nonUL 2nd study data.
+```{r}
+UL2_t$UL_Median <- apply(UL2_t,1,median)
+nUL2_t$nonUL_Median <- apply(nUL2_t,1,median)
+
+FoldChange_Median_UL_to_nonUL <- UL2_t$UL_Median/nUL2_t$nonUL_Median
+
+UL_study2_cc$FoldChange_Median_UL_to_nonUL <- FoldChange_Median_UL_to_nonUL
+```
+
+```{r}
+UL2_cnv <- UL_study2_cc %>%
+  group_by(SourceSeq) %>%
+  mutate(Sequence_CNVs = n()) %>%
+  select(ID,SourceSeq,Sequence_CNVs, CHR,FoldChange_Median_UL_to_nonUL, everything()) %>%
+  ungroup() %>%
+  unique()
+```
+
+The above has all unique CNVs of the sequences, as should be expected since there was no error making the row names the ID field. This data table of beadchip UL gene expression values has `r length(UL2_cnv$ID)` unique Genotypes, SNPs, or CNVs of genes. Again, the gene information will take some side data wrangling to get for that datasets top fold change and gene CNVs greater than the median value of CNVs.Lets write this to table and remember to use it if possible.
+```{r}
+write.csv(UL2_cnv, 'UL_study2_needsGeneData.csv', row.names=FALSE)
+```
+
+***
+
+Now lets get to the first study of UL gene expression data that we can use to add to our network analysis of genes related to diseases. These two tables are the UL1 and nonUL1 tables.
+```{r}
+nonUL1b <- nonUL1 %>% select(Symbol,SEQUENCE,Chromosome,Cytoband,GSM2496194:GSM2496222)
+UL1b <- UL1 %>% select(Symbol,SEQUENCE,Chromosome,Cytoband,GSM2496185:GSM2496220)
+colnames(nonUL1b)[5:22] <- paste('nonUL',colnames(nonUL1b)[5:22],sep='_')
+colnames(UL1b)[5:24] <- paste('UL',colnames(UL1b)[5:24],sep='_')
+
+```
+
+Add the Median fields to each table.
+```{r}
+
+UL1c <- UL1b[,5:24]
+nUL1c <- nonUL1b[,5:22]
+
+UL1c$UL1_Median <- apply(UL1c,1,median)
+nUL1c$nonUL1_Median <- apply(nUL1c,1,median)
+
+FC <- UL1c$UL1_Median/nUL1c$nonUL1_Median
+
+mUL1 <- UL1b[,1:4]
+UL_study1 <- cbind(mUL1,UL1c,nUL1c)
+
+UL_study1$FoldChange_Median_UL1_to_nonUL1 <- FC
+
+UL_study1b <- UL_study1 %>% select(Symbol,SEQUENCE,Chromosome,Cytoband,
+                                   FoldChange_Median_UL1_to_nonUL1,
+                                   UL1_Median,nonUL1_Median,
+                                   everything())
+```
+
+
+There are some missing values in the chromosome and cytoband fields, but we don't need to omit them yet.
+```{r}
+colSums(is.na(UL_study1b))
+```
+The above shows that there aren't any missing values in the samples or the sequence fields, but there are some in the gene symbol, chromosome, and cytoband fields.
+
+Lets get the CNVs of the genes now, but remove the NAs from the Symbol field first.
+```{r}
+UL_study1b2 <- UL_study1b[complete.cases(UL_study1b$Symbol),]
+UL_study1_cnv <- UL_study1b2 %>%
+  group_by(Symbol) %>%
+  mutate(Symbol_CNVs = n()) %>%
+  select(Symbol,Symbol_CNVs,everything()) %>%
+  ungroup() %>%
+  unique()
+```
+
+Lets look at what we have for our first few fields and the values.
+```{r}
+head(UL_study1_cnv[,1:6])
+```
+
+This is going to grab our target genes for those genes that have a CNV gene count greater than the top 90th percentile and also is either of the bottom 5th percentile or top 95th percentile for fold change median values of UL to nonUL gene expression values.
+```{r}
+UL_study1_thresholds <- subset(UL_study1_cnv, 
+                          UL_study1_cnv$Symbol_CNVs > quantile(UL_study1_cnv$Symbol_CNVs,.9) &
+                          (UL_study1_cnv$FoldChange_Median_UL1_to_nonUL1 < 
+                            quantile(UL_study1_cnv$FoldChange_Median_UL1_to_nonUL1,.05) |
+                          UL_study1_cnv$FoldChange_Median_UL1_to_nonUL1 > 
+                            quantile(UL_study1_cnv$FoldChange_Median_UL1_to_nonUL1,.95))
+                        )
+
+```
+
+
+Lets now order this table by CNV and Fold Change values.
+```{r}
+UL_study1_ordered <- UL_study1_thresholds[with(UL_study1_thresholds,
+                        order(Symbol_CNVs,FoldChange_Median_UL1_to_nonUL1,
+                              decreasing=TRUE)),]
+```
+
+
+Lets take a look at the top few rows and first few columns of this table of threshold value target genes for UL.
+```{r}
+head(UL_study1_ordered[,1:7])
+```
+
+The table is ordered by CNVs first then by fold change values within the top CNVs. Lets write this to csv and use it later for our visNetwork. So far, it looks like either the Chromosome or the cytoband could be used for location of the nodes. But we could also group the genes by link to gene disease networks, gene networks, or anything else we get ideas about later. 
+```{r}
+write.csv(UL_study1_ordered,'UL_study1_thresholds.csv',row.names=FALSE)
+```
+
