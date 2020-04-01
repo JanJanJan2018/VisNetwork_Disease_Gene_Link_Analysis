@@ -5,12 +5,13 @@ date: "3/27/2020"
 output: html_document
 ---
 
-This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon] Cancer(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
+This Rmarkdown file will extract the genes having high Copy Number Variants (CNVs) and fold change expression values in their available data. The information is from the previous GEO data sets used earlier, that also had sequence information as well as gene information. These studies having gene sequence information are: [Alzheimer's Disease (AD)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109887), [Colon Cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135749), [Stomach cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), [pancreatic cancer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131859), a beadchip study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi), and a microarry study done on [uterine leiomyomas (UL)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi). Once these genes having the most CNVs and fold changes are found, a link network will be built to demonstrate how these genes are linked to any of these diseases if applicable. From the top genes of each disease just listed.
 ```{r}
 library(dplyr)
 library(tidyr)
 library(DT)
 library(visNetwork)
+library(igraph)
 ```
 
 The tables being used are from the following disease study files.
@@ -129,7 +130,7 @@ UL2_cnv <- UL_study2_cc %>%
   unique()
 ```
 
-The above has all unique CNVs of the sequences, as should be expected since there was no error making the row names the ID field. This data table of beadchip UL gene expression values has `r length(UL2_cnv$ID)` unique Genotypes, SNPs, or CNVs of genes. Again, the gene information will take some side data wrangling to get for that datasets top fold change and gene CNVs greater than the median value of CNVs.Lets write this to table and remember to use it if possible.
+The above has all unique CNVs of the sequences, as should be expected since there was no error making the row names the ID field.
 ```{r, eval=FALSE}
 write.csv(UL2_cnv, 'UL_study2_needsGeneData.csv', row.names=FALSE)
 ```
@@ -835,7 +836,7 @@ AD4
 AD_genes1 <- datatable(data=AD4,  rownames=FALSE,
                       extensions=c('Buttons','Responsive','FixedColumns'),
                       filter=list(position='top'),
-                      options=list(
+                      options=list(pageLength=10,
                         dom='Bfrtip',scrollX = TRUE, fixedColumns = TRUE,
                         buttons=c('colvis','csv'),
                         language=list(sSearch='Filter:')
@@ -1071,7 +1072,10 @@ head(UL_BC)
 
 ```{r}
 UL_BC2 <- UL_BC
+UL_BC2$cytoband <- gsub('-','|',UL_BC2$cytoband)
+UL_BC2$cytoband <- gsub('[|].*[a-z]{1}$','', UL_BC2$cytoband, perl=TRUE)
 UL_BC2$cytoband <- gsub('[a-z]{1}$','', UL_BC2$cytoband, perl=TRUE)
+UL_BC2$cytoband <- as.factor(UL_BC2$cytoband)
 UL_BC2$cytoband <- as.factor(UL_BC2$cytoband)
 head(UL_BC2)
 ```
@@ -1115,7 +1119,7 @@ Lets use a DT library datatable to display the new table.
 All_DT1 <- datatable(data=All,  rownames=FALSE, width = 800, height = 700,
                       extensions=c('Buttons','Responsive','FixedColumns'),
                       #filter=list(position='top'),
-                      options=list(
+                      options=list(pageLength=10,
                         dom='Bfrtip',scrollX = TRUE, scrollY=TRUE,fixedColumns = TRUE,
                         buttons=c('colvis','csv'),
                         language=list(sSearch='Filter:')
@@ -1138,7 +1142,7 @@ Lets create a DT data table of this information showing the unique genes with th
 All_DT2 <- datatable(data=All4,  rownames=FALSE, width = 800, height = 700,
                       extensions=c('Buttons','Responsive','FixedColumns'),
                       #filter=list(position='top'),
-                      options=list(
+                      options=list(pageLength=10,
                         dom='Bfrtip',scrollX = TRUE, scrollY=TRUE,fixedColumns = TRUE,
                         buttons=c('colvis','csv'),
                         language=list(sSearch='Filter:')
@@ -1191,45 +1195,45 @@ We need a node data frame with an id, label, and location. The label can be the 
 
 The nodes will have the id, label (gene), location (cytoband). Lets add the id field to the All5 table that groups by gene and counts the diseases per gene.
 ```{r}
-nodes <- All %>% select(gene, cytoband)
-nodes_id <- as.data.frame(unique(All7$gene))
-colnames(nodes_id) <- 'gene'
-nodes_id$id <- row.names(nodes_id)
+nodes <- All5
 
-nodes1 <- merge(nodes, nodes_id, by.x='gene',by.y='gene')
+nodes$id <- as.factor(row.names(nodes))
+nodes$label <- nodes$gene
+nodes$location <- nodes$disease
+nodes$weight <- nodes$geneDiseases
 
-nodes2 <- merge(nodes1, All5, by.x='gene', by.y='gene')
-
-head(nodes2)
+nodes1 <- nodes %>% select(id,label,location,weight)
+head(nodes1)
 
 
 ```
 
-The nodes table is nodes3.
+This adds in a title that will be displayed when hovered over, and also adds in a group, so that the groups will be color coded and grouped by whichever the group is being set to. Zoom in with the interactive display buttons to view the names and cluster groups once the interactive plot is ran.
 ```{r}
-nodes2$label <- paste(nodes2$gene, nodes2$cytoband, sep=' ')
-nodes2$location <- nodes2$cytoband
+nodes3 <- All %>% select(gene,cytoband,disease)
+nodes4 <- merge(nodes1,nodes3, by.x='label', by.y='gene')
+nodes4$group <- nodes4$disease
+nodes4$title <- nodes4$cytoband
+nodes5 <- nodes4 %>% select(id,label,group,title,location,weight,cytoband)
 
-nodes3 <- nodes2 %>% select(id,label,location,gene,geneDiseases,disease)
-
-head(nodes3)
+head(nodes5)
 
 ```
 
 The edges will have the from (id), to (disease), label, weight (counts), and width(fraction of counts for arrow width)
 ```{r}
+nodes6 <- nodes5[!duplicated(nodes5$id),]
 
-edges <- nodes3 %>% select(gene, id, geneDiseases,disease)
+edges <- nodes6 %>% select(id, location, weight,cytoband)
 edges$from <- edges$id
-edges$weight <- edges$geneDiseases
 edges$width <- edges$weight/3
-edges$label <- edges$disease
+edges$label <- edges$location
 
-to <- as.data.frame(unique(nodes3$disease))
-colnames(to) <- 'disease'
-to$to <- row.names(to)
+to <- as.data.frame(unique(nodes5$location))
+colnames(to) <- 'location'
+to$to <- as.factor(row.names(to))
 
-edges2 <- merge(edges,to, by.x='disease', by.y='disease')
+edges2 <- merge(edges,to, by.x='location', by.y='location')
 edges3 <- edges2 %>% select(from,to,label,weight, width)
 
 head(edges3)
@@ -1238,13 +1242,179 @@ head(edges3)
 
 Our nodes table is nodes3 and our edges table is edges3.
 ```{r}
-visNetwork(nodes=nodes3, edges=edges3, main='Genes Associated with Six Diseases') %>% visEdges(arrows=c('from','middle')) %>%
+
+visNetwork(nodes=nodes6, edges=edges3, main='Genes Associated with Six Diseases') %>% visEdges(arrows=c('from','middle')) %>%
   visInteraction(navigationButtons=TRUE, dragNodes=FALSE,
                  dragView=TRUE, zoomView = TRUE) %>%
-  visOptions(nodesIdSelection = TRUE, manipulation=FALSE)
+  visOptions(nodesIdSelection = TRUE, manipulation=FALSE) %>%
+  visIgraphLayout() %>%
+  visLegend
 
 ```
 
 
+Its great that the visual network worked but many genes are counted repeatedly and makes it cluttered. We should use the table with 57 genes of those genes that had an assoication with more than one disease in table All7. But regardless of the clutter we see that there are six clusters around the six disease types. When you zoom in on the clusters, the cluster with the most links to other diseases is the Alzheimer cluster that is associated with both UL studies, colon cancer, and stomach cancer, but not with pancreatic cancer. The UL microarray study was associated with genes in pancreatic cancer and Alzheimer disease. This is what the chart showed when we looked at it earlier, the All7 data table.
 
+Here is the All7 datatable as a refresher of the connections seen above in the visNetwork link analysis plot.
+```{r}
+All7_DT3 <- datatable(data=All7, rownames=FALSE,  width = 800, height = 700,
+                      extensions=c('Buttons','Responsive','FixedColumns'),
+                      #filter=list(position='top'),
+                      options=list(pageLength=10,
+                        dom='Bfrtip',scrollX = TRUE, scrollY=TRUE,fixedColumns = TRUE,
+                        buttons=c('colvis','csv'),
+                        language=list(sSearch='Filter:')
+                        )
+                      )
+                  
+All7_DT3
+```
+
+The above table All7 would probably make a much better visual network analysis to view those specific genes associated with multiple diseases. In this case, five diseases, of which two were different media type for the UL samples as beadchip or microarray. These diseases were selected because they had sequence information attached to their GEO sample and platform data to make our targeted gene selections by copy number variants of genes as well as fold change values in the 5th and 95th percentile approximately. These genes out of tens of thousands fit those threshold values.
+
+```{r}
+nodes10 <- All7 %>% select(gene, disease)
+nodes10$id <- row.names(nodes10)
+nodes10$label <- nodes10$gene
+nodes10$location <- nodes10$disease
+nodes10$title <- nodes10$disease
+
+nodes11 <- nodes10 %>% select(id,label,title,location)
+head(nodes11,10)
+```
+
+```{r}
+edges10 <- All7 %>% select(gene,disease, geneDiseases)
+edges10$from <- row.names(All7)
+
+to <- as.data.frame(unique(All7$disease))
+colnames(to) <- 'disease'
+to$to <- as.factor(row.names(to))
+
+edges11 <- merge(to, edges10, by.x='disease', by.y='disease')
+edges11$label <- edges11$disease
+edges11$weight <- edges11$geneDiseases
+edges11$width <- edges11$weight/2
+
+edges12 <- edges11 %>% select(from, to, label, weight, width)
+head(edges12,10)
+```
+
+```{r}
+visNetwork(nodes=nodes11, edges=edges12, main='Mulitple Disease Associations of 27 Unique Genes') %>% visEdges(arrows=c('from','middle','to')) %>%
+  visInteraction(navigationButtons=TRUE, dragNodes=TRUE,
+                 dragView=TRUE, zoomView = TRUE) %>%
+  visOptions(nodesIdSelection = TRUE, manipulation=FALSE) %>%
+  visIgraphLayout()
+
+```
+
+Lets compare this with the underlying data of our datatable All7_DT3.
+```{r}
+All7_DT3
+```
+
+Lets see what this looks like to link the genes from cytoband location to other diseases in our link analysis. 
+```{r}
+all10 <- All %>% select(gene,cytoband,cnv,disease,foldChangeValue)
+all10$foldChangeValue <- round(all10$foldChangeValue,1)
+all11 <- all10[!duplicated(all10),]
+row.names(all11) <- NULL
+all12 <- all11[with(all11, order(cytoband)),]
+row.names(all12) <- NULL
+head(all12,10)
+```
+
+Lets rename and rearrange the fields above.
+```{r}
+all12$weight <- all12$cnv
+all12$width <- all12$foldChangeValue
+all12$id <- as.factor(row.names(all12))
+all12$label <- all12$gene
+all12$title <- all12$cytoband
+all12$group <- all12$disease
+all12$receiveLocation <- all12$disease
+all12$sendLocation <- all12$gene
+all12$from <- all12$id
+
+to <- as.data.frame(unique(all12$receiveLocation))
+colnames(to) <- 'receiveLocation'
+to$to <- row.names(to)
+
+all12b <- merge(all12,to, by.x='receiveLocation', by.y='receiveLocation')
+
+all13 <- all12b %>% select(id,label,title,group,sendLocation,receiveLocation,weight,width,from,to)
+
+head(all13,10)
+```
+
+Build the nodes and edges tables. The weight in this set is the gene CNVs per disease. Previously it was the number of diseases each gene was associated with.
+```{r}
+nodes15 <- all13 %>% select(id,label,title, group,sendLocation)
+edges14 <- all13 %>% select(from,to,receiveLocation,weight,width)
+edges14$label <- edges14$receiveLocation
+edges15 <- edges14 %>% select(from,to,label,weight, width)
+
+```
+
+```{r}
+visNetwork(nodes=nodes15, edges=edges15, main='Cytoband Nodes and Disease Association') %>% visEdges(arrows=c('from','middle','to')) %>%
+  visInteraction(navigationButtons=TRUE, dragNodes=TRUE,
+                 dragView=TRUE, zoomView = TRUE) %>%
+  visOptions(nodesIdSelection = TRUE, manipulation=FALSE) %>%
+  visIgraphLayout() %>%
+  visLegend(ncol=2)
+```
+
+
+
+
+Lets move some stuff around and see what happens.
+```{r}
+all10 <- All %>% select(gene,cytoband,cnv,disease,foldChangeValue)
+all10$foldChangeValue <- round(all10$foldChangeValue,1)
+all11 <- all10[!duplicated(all10),]
+row.names(all11) <- NULL
+all12 <- all11[with(all11, order(cytoband)),]
+row.names(all12) <- NULL
+head(all12,10)
+```
+
+Lets rename and rearrange the fields above.
+```{r}
+all12$weight <- all12$cnv
+all12$width <- all12$foldChangeValue
+all12$id <- as.factor(row.names(all12))
+all12$label <- all12$disease
+all12$receiveLocation <- all12$gene
+all12$sendLocation <- all12$disease
+all12$from <- all12$id
+
+to <- as.data.frame(unique(all12$receiveLocation))
+colnames(to) <- 'receiveLocation'
+to$to <- row.names(to)
+
+all12b <- merge(all12,to, by.x='receiveLocation', by.y='receiveLocation')
+
+all13 <- all12b %>% select(id,label,sendLocation,receiveLocation,weight,width,from,to)
+
+head(all13,10)
+```
+
+Build the nodes table.
+```{r}
+nodes15 <- all13 %>% select(id,label,sendLocation)
+edges14 <- all13 %>% select(from,to,receiveLocation,weight,width)
+edges14$label <- edges14$receiveLocation
+edges15 <- edges14 %>% select(from,to,label,weight, width)
+
+```
+
+```{r}
+visNetwork(nodes=nodes15, edges=edges15, main='Disease as Nodes and Genes as Edges') %>% visEdges(arrows=c('from','middle','to')) %>%
+  visInteraction(navigationButtons=TRUE, dragNodes=TRUE,
+                 dragView=TRUE, zoomView = TRUE) %>%
+  visOptions(nodesIdSelection = TRUE, manipulation=FALSE) %>%
+  visIgraphLayout()
+```
 
